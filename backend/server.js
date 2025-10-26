@@ -3,111 +3,115 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 
-// Load environment variables
+// Load environment variables from .env file
 dotenv.config();
 
 const app = express();
 
-// CORS configuration
+// --- CORS (Cross-Origin Resource Sharing) Configuration ---
+// This is a security feature that controls which websites can access your API.
+
+// A list of websites that are allowed to connect.
 const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
-  'http://localhost:3003',
+  'http://localhost:3003', // Your current frontend development URL
   'http://127.0.0.1:3003',
   'http://localhost:3004',
   'http://127.0.0.1:3004',
   'http://localhost:3005',
   'http://127.0.0.1:3005',
-  'http://localhost:3007',   // frontend in your screenshot
+  'http://localhost:3007',
   'http://127.0.0.1:3007'
 ];
 
-// Allow overriding from env (optional)
-if (process.env.FRONTEND_URL) {
+// For production, we add the live frontend URL from an environment variable.
+if (process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL);
+  console.log(`CORS: Allowing production origin: ${process.env.FRONTEND_URL}`);
 }
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps, curl, postman)
+    // Allow requests with no origin (like Postman, mobile apps, or server-to-server requests)
     if (!origin) return callback(null, true);
+    
+    // If the incoming request's origin is in our whitelist, allow it.
     if (allowedOrigins.indexOf(origin) !== -1) {
       return callback(null, true);
     } else {
+      // Otherwise, block it with a CORS error.
       return callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
+  credentials: true, // Allows the frontend to send cookies and authorization headers.
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-// Enable CORS and preflight handling
+// Enable CORS with the options above.
 app.use(cors(corsOptions));
+// Handle pre-flight requests (the browser sends an OPTIONS request first for complex calls).
 app.options('*', cors(corsOptions));
 
-// Request logger
+
+// --- Middleware ---
+
+// A simple logger to show incoming requests in the console.
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
   next();
 });
 
+// Body-parser middleware to understand JSON and URL-encoded data from requests.
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/raitha_mithra', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
 
-// Routes
+// --- Database Connection ---
+// Connect to the MongoDB database using the URI from the .env file.
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/raitha_mithra')
+  .then(() => console.log('✅ Connected to MongoDB successfully!'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
+
+
+// --- API Routes ---
+// This is where the application's logic lives.
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/equipment', require('./routes/equipment'));
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/reviews', require('./routes/reviews'));
 
-// Health check route
+// A simple "health check" route to verify that the API is running.
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'RAITHA MITHRA API is running' });
 });
 
-// Error handling middleware
+
+// --- Error Handling ---
+
+// A central middleware to catch and handle errors.
 app.use((err, req, res, next) => {
-  console.error(err && err.stack ? err.stack : err);
-  // If CORS error from corsOptions
-  if (err && err.message && err.message.includes('CORS')) {
-    return res.status(403).json({ message: 'CORS Error: Access denied' });
+  console.error(err.stack || err);
+  // Specifically handle CORS errors.
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({ message: 'CORS Error: This origin is not allowed to access the API.' });
   }
-  res.status(500).json({ message: 'Something went wrong!' });
+  // For all other errors, send a generic 500 server error.
+  res.status(500).json({ message: 'Something went wrong on the server!' });
 });
 
-// 404 handler
+// A 404 handler for any requests to routes that don't exist.
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
-// Port setup
+
+// --- Server Startup ---
 const DEFAULT_PORT = 5001;
-let port = parseInt(process.env.PORT, 10) || DEFAULT_PORT;
+const port = parseInt(process.env.PORT, 10) || DEFAULT_PORT;
 
-const startServer = (p) => {
-  const server = app.listen(p)
-    .on('listening', () => {
-      console.log(`Server running on port ${p}`);
-      console.log(`RAITHA MITHRA API: http://localhost:${p}`);
-    })
-    .on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        const nextPort = p + 1 > 65535 ? DEFAULT_PORT : p + 1;
-        console.log(`Port ${p} is busy, trying port ${nextPort}...`);
-        startServer(nextPort);
-      } else {
-        console.error('Server error:', err);
-      }
-    });
-};
-
-startServer(port);
+app.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
+    console.log(`   RAITHA MITHRA API available at: http://localhost:${port}`);
+});
